@@ -68,7 +68,8 @@ deployment of the AnonVote contract while building this module.
    identity (which becomes `round.admin` on-chain) and records the round +
    proposals in Postgres in one transaction. `proposals[i]`'s array position
    *is* its on-chain `choice` index — `cast_vote`/`tally` are index-based, so
-   this ordering is load-bearing.
+   this ordering is load-bearing. `GET /rounds` lists every round this
+   backend knows about.
 
 3. **`POST /rounds/{id}/eligibility`** — the round admin marks which Stellar
    addresses may register (`{"voters": ["G...", "G..."], "eligible": true}`).
@@ -120,7 +121,11 @@ deployment of the AnonVote contract while building this module.
 7. **`GET /rounds/{id}/tally`** — the live public tally, read directly from
    the chain on every call (`get_round` + `tally`, both simulated only — no
    fee, nothing submitted) rather than served from a cache, so it's never
-   stale.
+   stale. `GET /rounds/{id}/registrations` similarly mirrors the round's
+   public leaf list (`leaf_index` + `commitment_hex` per registrant, no
+   vote-linkage data) — a registered voter's own client needs this to
+   reconstruct the Merkle path their vote's proof requires, since the
+   contract itself only exposes the current root.
 
 8. **`POST /rounds/{id}/finalize`** — the round admin closes voting
    (`finalize_round`) and gets the final tally back.
