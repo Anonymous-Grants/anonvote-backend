@@ -5,6 +5,7 @@ use crate::{
     models::{
         ChoiceTally, CreateRoundRequest, CreateRoundResponse, EligibilityFailure, OnChainRound,
         ProposalRow, RoundRow, SetEligibilityRequest, SetEligibilityResponse, TallyResponse,
+        VoterRegistrationRow,
     },
     soroban_client::{addr, bool_, text, u32_, u64_, Invoked},
     state::AppState,
@@ -78,6 +79,14 @@ pub async fn create_round(
     tx.commit().await?;
 
     Ok(Json(CreateRoundResponse { round, proposals }))
+}
+
+/// `GET /rounds` — every round this backend knows about, newest first.
+pub async fn list_rounds(State(state): State<AppState>) -> Result<Json<Vec<RoundRow>>, AppError> {
+    let rounds: Vec<RoundRow> = sqlx::query_as("SELECT * FROM rounds ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await?;
+    Ok(Json(rounds))
 }
 
 /// `GET /rounds/{id}` — round + proposal metadata from this backend's own
@@ -224,6 +233,28 @@ pub async fn get_tally(
         choices,
         total_votes,
     }))
+}
+
+/// `GET /rounds/{id}/registrations` — the round's public anonymity-set leaf
+/// list (`leaf_index` + `commitment_hex` per registrant, no vote-linkage
+/// data). A registered voter's own client needs this to reconstruct the
+/// Merkle path their `cast_vote` proof requires — the contract itself only
+/// exposes the current root, not the full leaf list (see the
+/// anonvote-contracts README's note on `Registered` events). Exposing it
+/// here isn't a privacy regression: it's already public on-chain via the
+/// `Registered` event log this table mirrors.
+pub async fn list_registrations(
+    State(state): State<AppState>,
+    Path(round_id): Path<i64>,
+) -> Result<Json<Vec<VoterRegistrationRow>>, AppError> {
+    fetch_round(&state, round_id).await?;
+    let rows: Vec<VoterRegistrationRow> = sqlx::query_as(
+        "SELECT * FROM voter_registrations WHERE round_id = $1 ORDER BY leaf_index",
+    )
+    .bind(round_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 fn zip_tally(proposals: &[ProposalRow], votes: &[u64]) -> Vec<ChoiceTally> {
